@@ -1,0 +1,5 @@
+aiohttp
+feedparser
+schedule
+python-telegram-bot
+python-dotenv
