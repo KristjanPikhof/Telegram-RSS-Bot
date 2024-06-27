@@ -4,6 +4,7 @@ import os
 import requests
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
@@ -49,7 +50,7 @@ async def convert_to_rss_feed(youtube_url):
     Returns:
     str: The RSS feed URL.
     """
-    # Normalizing the URL
+    # Normalize the URL to ensure it starts with 'https://' and does not contain 'www'
     if not youtube_url.startswith('https://'):
         youtube_url = 'https://' + youtube_url
     youtube_url = youtube_url.replace('www.', '')
@@ -64,7 +65,7 @@ async def convert_to_rss_feed(youtube_url):
         channel_id = channel_id_match.group(1)
         return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     
-    # Check if the URL is in the format https://www.youtube.com/@ChannelName
+    # Check if the URL is in the format https://www.youtube.com/@TLD
     if re.match(r'https://youtube\.com/@[\w-]+', youtube_url):
         return await extract_rss_feed_url(youtube_url)
     
