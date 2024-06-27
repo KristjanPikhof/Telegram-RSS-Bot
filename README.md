@@ -13,7 +13,7 @@ This bot allows users to manage RSS feeds and receive updates via Telegram. User
 ## Commands
 
 - `/start`: Register the bot and set the channel for RSS updates if the command is issued in a group or channel.
-- `/add <RSS_feed_url>`: Add an RSS feed URL to receive updates (_for example /add https://www.reddit.com/r/europe.rss_)
+- `/add <RSS_feed_url>`: Add an RSS feed URL to receive updates (_for example /add https://reddit.com/r/europe.rss or https://youtube.com/@IntoEurope_)
 - `/list`: List all added RSS feeds.
 - `/delete <RSS_feed_url>`: Delete a specified RSS feed URL.
 - `/check`: Manually trigger an RSS feed check for updates.
