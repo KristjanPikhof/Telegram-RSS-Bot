@@ -6,9 +6,10 @@ import feedparser
 import schedule
 import json
 from datetime import datetime
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from dotenv import load_dotenv
+from youtube import convert_to_rss_feed
 
 # Load environment variables from .env file
 load_dotenv()
@@ -106,11 +107,19 @@ async def add_feed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text('📥 Please provide an RSS feed URL after the /add command.')
         return
     
-    # Validate the feed URL
-    valid, message = await validate_feed_url(feed_url)
-    if not valid:
-        await update.message.reply_text(message)
-        return
+    # Support for YouTube RSS
+    if 'youtube.com' in feed_url:
+        try:
+            feed_url = await convert_to_rss_feed(feed_url)
+        except ValueError as e:
+            await update.message.reply_text(str(e))
+            return
+    else:
+        # Validate the feed URL for non-YouTube feeds
+        valid, message = await validate_feed_url(feed_url)
+        if not valid:
+            await update.message.reply_text(message)
+            return
 
     if user_id in user_feeds:
         user_feeds[user_id].append(feed_url)

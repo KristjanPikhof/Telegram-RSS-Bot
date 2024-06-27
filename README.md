@@ -4,7 +4,7 @@ This bot allows users to manage RSS feeds and receive updates via Telegram. User
 
 ## Features
 
-- **Add RSS Feeds:** Users can add RSS feed URLs to receive updates.
+- **Add RSS Feeds:** Users can add RSS feed URLs to receive updates (including YouTube channels).
 - **List RSS Feeds:** Users can list their added RSS feeds.
 - **Delete RSS Feeds:** Users can remove RSS feed URLs from their list.
 - **Automatic Updates:** The bot checks RSS feeds for updates every 5 minutes and sends new entries to the user.
