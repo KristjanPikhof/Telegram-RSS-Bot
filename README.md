@@ -4,7 +4,7 @@ This bot allows users to manage RSS feeds and receive updates via Telegram. User
 
 ## Features
 
-- **Add RSS Feeds:** Users can add RSS feed URLs to receive updates (including YouTube channels).
+- **Add RSS Feeds:** Users can add RSS feed URLs to receive updates (_including YouTube channels_).
 - **List RSS Feeds:** Users can list their added RSS feeds.
 - **Delete RSS Feeds:** Users can remove RSS feed URLs from their list.
 - **Automatic Updates:** The bot checks RSS feeds for updates every 5 minutes and sends new entries to the user.
@@ -31,11 +31,11 @@ This bot allows users to manage RSS feeds and receive updates via Telegram. User
     git clone https://github.com/KristjanPikhof/Telegram-RSS-Bot.git
     ```
 
-2. Add your tokens to the `.env` file:
+2. Fill the `.env` file with your information:
 
     ```
     TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-    YOUTUBE_API_KEY=your_google_console_api_token
+    YOUTUBE_API_KEY=your_google_console_api_key
     ```
 
 3. Install the required dependencies:
@@ -50,7 +50,8 @@ This bot allows users to manage RSS feeds and receive updates via Telegram. User
     python main.py
     ```
 
-### 2.1 How to get YouTube API key? {🔑} [Read here](https://developers.google.com/youtube/v3/getting-started)
+### [How to get YouTube API key 🔑?](https://developers.google.com/youtube/v3/getting-started)
+### [How to create Telegram Bot and get the bot token?](https://core.telegram.org/bots/tutorial)
 
 ## Dependencies
 
