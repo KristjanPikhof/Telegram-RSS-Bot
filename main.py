@@ -14,6 +14,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Callb
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHANNEL_CONFIG_FILE = 'channel_config.json'
+USER_SETTINGS_FILE = 'user_settings.json'
 
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("No TELEGRAM_BOT_TOKEN found in environment variables")
@@ -42,23 +43,20 @@ def save_json(data, file_path):
     logger.info(f'Saved data to {file_path}')
 
 def load_data():
-    """Load user feeds and posted entries from JSON files"""
+    """Load user feeds, posted entries, channel ID, and user settings from JSON files"""
     user_feeds = load_json(FEEDS_FILE)
     posted_entries = load_json(POSTED_ENTRIES_FILE)
     channel_id = load_json(CHANNEL_CONFIG_FILE).get('channel_id')
-    return user_feeds, posted_entries, channel_id
+    user_settings = load_json(USER_SETTINGS_FILE)
+    return user_feeds, posted_entries, channel_id, user_settings
 
-def save_data(user_feeds, posted_entries, channel_id):
-    """Save user feeds, posted entries, and channel ID to JSON files"""
+def save_data(user_feeds, posted_entries, channel_id, user_settings):
+    """Save user feeds, posted entries, channel ID, and user settings to JSON files"""
     save_json(user_feeds, FEEDS_FILE)
     save_json(posted_entries, POSTED_ENTRIES_FILE)
-
-    # Check if channel_id is a string or an integer
-    if isinstance(channel_id, int):
-        channel_id = str(channel_id)
-
     save_json({'channel_id': channel_id}, CHANNEL_CONFIG_FILE)
-    logger.info(f'Saved data to {FEEDS_FILE}, {POSTED_ENTRIES_FILE}, and {CHANNEL_CONFIG_FILE}')
+    save_json(user_settings, USER_SETTINGS_FILE)
+    logger.info(f'Saved data to {FEEDS_FILE}, {POSTED_ENTRIES_FILE}, {CHANNEL_CONFIG_FILE}, and {USER_SETTINGS_FILE}')
 
 async def validate_feed_url(feed_url):
     """Validate the RSS feed URL"""
@@ -87,30 +85,29 @@ async def check_feeds(context: ContextTypes.DEFAULT_TYPE, user_feeds, posted_ent
     current_time = datetime.utcnow().isoformat()
 
     async with aiohttp.ClientSession() as session:
-        tasks = [fetch_feed(session, feed_url) for user_id, feeds in user_feeds.items() for feed_url in feeds]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for user_id, feeds in user_feeds.items():
+            for feed_url in feeds:
+                feed, error = await fetch_feed(session, feed_url)
+                if error:
+                    logger.error(error)
+                    continue
 
-        for (feed, error), (user_id, feed_url) in zip(results, [(u, f) for u, feeds in user_feeds.items() for f in feeds]):
-            if error:
-                logger.error(error)
-                continue
-
-            for entry in feed.entries:
-                entry_id = entry.get('id', entry.link)
-                if user_id not in posted_entries:
-                    posted_entries[user_id] = {}
-                if entry_id not in posted_entries[user_id]:
-                    message_text = f'⚡️ [{entry.title}]({entry.link})'
-                    if channel_id and str(user_id) == channel_id:
+                for entry in feed.entries:
+                    entry_id = entry.get('id', entry.link)
+                    if user_id not in posted_entries:
+                        posted_entries[user_id] = {}
+                    if entry_id not in posted_entries[user_id]:
+                        message_text = f'⚡️ [{entry.title}]({entry.link})'
                         await bot.send_message(chat_id=user_id, text=message_text, parse_mode='Markdown')
-                    else:
-                        await bot.send_message(chat_id=user_id, text=message_text, parse_mode='Markdown')
-                    posted_entries[user_id][entry_id] = current_time
+                        posted_entries[user_id][entry_id] = current_time
 
     if channel_id:
-        await post_to_channel(context, user_feeds, posted_entries, channel_id)
+            await post_to_channel(context, user_feeds, posted_entries, channel_id)
 
-    save_data(user_feeds, posted_entries, channel_id)
+    # Get user_settings from context.bot_data
+    user_settings = context.bot_data.get('user_settings', {})
+    
+    save_data(user_feeds, posted_entries, channel_id, user_settings)
     logger.info('Feed check completed')
 
 async def post_to_channel(context: CallbackContext, user_feeds, posted_entries, channel_id):
@@ -135,6 +132,44 @@ async def post_to_channel(context: CallbackContext, user_feeds, posted_entries, 
                         posted_entries[channel_id] = {}
                     posted_entries[channel_id][entry_id] = current_time
 
+def format_timedelta(td):
+    """Format a timedelta object into a human-readable string"""
+    total_seconds = int(td.total_seconds())
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    parts = []
+    if hours > 0:
+        parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+    if minutes > 0:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    if seconds > 0:
+        parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
+    
+    return ", ".join(parts) if parts else "less than a second"
+
+def update_job_interval(context: CallbackContext, chat_id: str, interval: int):
+    """Update the job interval for a specific chat and return the new job"""
+    job_name = f"feed_check_{chat_id}"
+    current_jobs = context.job_queue.get_jobs_by_name(job_name)
+    
+    for job in current_jobs:
+        job.schedule_removal()
+    
+    async def callback(context: CallbackContext):
+        await check_feeds(context, {chat_id: context.bot_data['user_feeds'].get(chat_id, [])}, 
+                          {chat_id: context.bot_data['posted_entries'].get(chat_id, {})}, 
+                          context.bot_data['channel_id'], context.bot)
+
+    new_job = context.job_queue.run_repeating(
+        callback,
+        interval=interval * 60,
+        first=0,
+        name=job_name
+    )
+    
+    return new_job
+
 async def run_scheduler():
     """Run scheduled tasks"""
     while True:
@@ -144,40 +179,51 @@ async def run_scheduler():
 async def main():
     """Start the bot"""
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    job_queue: JobQueue = application.job_queue  # Get the JobQueue instance
+    job_queue: JobQueue = application.job_queue
 
     # Load initial data
-    user_feeds, posted_entries, channel_id = load_data()
-
-    # Register command handlers
-    from commands import start, add_feed, list_feeds, delete_feed, manual_check
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("add", add_feed))
-    application.add_handler(CommandHandler("list", list_feeds))
-    application.add_handler(CommandHandler("delete", delete_feed))
-    application.add_handler(CommandHandler("check", lambda update, context: manual_check(update, context, check_feeds, application)))
+    user_feeds, posted_entries, channel_id, user_settings = load_data()
 
     # Initialize bot data
     application.bot_data = {
         'user_feeds': user_feeds,
         'posted_entries': posted_entries,
-        'channel_id': channel_id
+        'channel_id': channel_id,
+        'user_settings': user_settings
     }
+
+    # Register command handlers
+    from commands import start, add_feed, list_feeds, delete_feed, manual_check, update_every
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("add", add_feed))
+    application.add_handler(CommandHandler("list", list_feeds))
+    application.add_handler(CommandHandler("delete", delete_feed))
+    application.add_handler(CommandHandler("check", lambda update, context: manual_check(update, context, check_feeds, application)))
+    application.add_handler(CommandHandler("update", update_every))
 
     # Start the bot and scheduler
     logger.info("Bot started. Listening for commands...")
 
-    # Schedule the check_feeds function to run every 5 minutes
-    job_queue.run_repeating(lambda context: check_feeds(context, user_feeds, posted_entries, channel_id, application.bot), interval=300)
+    # Schedule the check_feeds function for each user/chat
+    for chat_id, feeds in user_feeds.items():
+        settings = user_settings.get(chat_id, {})
+        interval = settings.get('update_interval', 30) # Default update interval 30min
+        job_queue.run_repeating(
+            lambda context, chat=chat_id: check_feeds(context, {chat: feeds}, 
+                                                      {chat: posted_entries.get(chat, {})}, 
+                                                      channel_id, application.bot),
+            interval=interval * 60,
+            name=f"feed_check_{chat_id}"
+        )
 
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
 
-    # Keep the event loop running indefinitely
+    # Keep the event loop running
     loop = asyncio.get_running_loop()
     try:
-        await asyncio.Future()  # Run forever
+        await asyncio.Future()
     finally:
         await application.stop()
 

@@ -1,8 +1,9 @@
 import logging
+from datetime import datetime, timedelta, timezone
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, CallbackContext
 from youtube import convert_to_rss_feed
-from main import save_data
+from main import save_data, update_job_interval, format_timedelta
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s: %(message)s',
@@ -41,7 +42,9 @@ async def start(update: Update, callback_data: ContextTypes.DEFAULT_TYPE) -> Non
             "📥 **Add a feed:** `/add <RSS_feed_url>`\n"
             "📜 **List your feeds:** `/list`\n"
             "🗑️ **Remove a feed:** `/delete <RSS_feed_url>`\n"
-            "✅ **Check feeds manually:** `/check`"
+            "✅ **Check feeds manually:** `/check`\n"
+            "⏱️ **Set update interval:** `/update <minutes>`\n"
+            "🔍 **Manual check feed:** `/check`\n"
         )
         await update.effective_message.reply_text(welcome_message, parse_mode='Markdown')
 
@@ -109,7 +112,7 @@ async def delete_feed(update: Update, callback_data: ContextTypes.DEFAULT_TYPE) 
     else:
         await update.effective_message.reply_text('❌ Feed not found for this chat.')
 
-async def manual_check(update: Update, context: ContextTypes.DEFAULT_TYPE, check_feeds_func, application) -> None:
+async def manual_check(update: Update, context: CallbackContext, check_feeds_func, application) -> None:
     """Manual trigger to check RSS feeds"""
     logger.info(f'Received /check from {update.effective_chat.id}')
     chat_id = str(update.effective_chat.id)
@@ -117,4 +120,40 @@ async def manual_check(update: Update, context: ContextTypes.DEFAULT_TYPE, check
     posted_entries = context.bot_data['posted_entries']
     channel_id = context.bot_data['channel_id']
     await check_feeds_func(context, user_feeds, posted_entries, channel_id, application.bot)
-    await update.effective_message.reply_text('✅ Manual feed check completed.')
+    
+    # Restart the job for this chat
+    user_settings = context.bot_data.get('user_settings', {})
+    interval = user_settings.get(chat_id, {}).get('update_interval', 30)
+    job = update_job_interval(context, chat_id, interval)
+    now = datetime.now(tz=timezone.utc)
+    next_update = now + timedelta(minutes=interval)
+    
+    response = (
+        "✅ Manual feed check completed.\n"
+        f"Next update at: {next_update.strftime('%d.%m.%Y %H:%M:%S %Z')}\n"
+        f"Current interval: {interval} minutes"
+    )
+    
+    await update.effective_message.reply_text(response)
+
+async def update_every(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Set the update interval for the user or channel"""
+    chat_id = str(update.effective_chat.id)
+    try:
+        interval = int(context.args[0])
+        if interval < 1:
+            raise ValueError("Interval must be at least 1 minute.")
+        
+        user_settings = context.bot_data.get('user_settings', {})
+        user_settings[chat_id] = {'update_interval': interval}
+        context.bot_data['user_settings'] = user_settings
+        
+        save_data(context.bot_data['user_feeds'], context.bot_data['posted_entries'], 
+                  context.bot_data['channel_id'], user_settings)
+        
+        # Update the job for this chat
+        update_job_interval(context, chat_id, interval)
+        
+        await update.effective_message.reply_text(f"⏱️ Update interval set to {interval} minutes.")
+    except (IndexError, ValueError):
+        await update.effective_message.reply_text("⏱️ Please provide a valid interval in minutes (minimum 1). Example: /update 30")
