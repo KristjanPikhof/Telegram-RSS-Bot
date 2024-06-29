@@ -42,9 +42,8 @@ async def start(update: Update, callback_data: ContextTypes.DEFAULT_TYPE) -> Non
             "📥 **Add a feed:** `/add <RSS_feed_url>`\n"
             "📜 **List your feeds:** `/list`\n"
             "🗑️ **Remove a feed:** `/delete <RSS_feed_url>`\n"
-            "✅ **Check feeds manually:** `/check`\n"
+            "🔍 **Check feeds manually:** `/check`\n"
             "⏱️ **Set update interval:** `/update <minutes>`\n"
-            "🔍 **Manual check feed:** `/check`\n"
         )
         await update.effective_message.reply_text(welcome_message, parse_mode='Markdown')
 
